@@ -66,7 +66,8 @@ async def lifespan(app: FastAPI):
     if app.state.engine_config.backend == "jax":
         import jax
 
-        accelerator = jax.default_backend()
+        # accelerator = jax.default_backend()
+        accelerator = "tpu"
         if accelerator in ("gpu", "tpu"):
             cmd.extend(["--extra", accelerator])
     cmd.extend(["-m", "skyrl.tinker.engine"])
