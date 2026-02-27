@@ -310,6 +310,9 @@ class JaxBackendImpl(AbstractBackend):
 
     def _create_loss_and_grad_fn(self):
         """Compile and cache the loss function to avoid re-jitting on every call."""
+        # Pull out static config/data to avoid capturing 'self' which contains distributed arrays
+        graphdef = self.graphdef
+        mhc_expansion_rate = self.config.mhc_expansion_rate
 
         def _model_forward(
             graphdef: nnx.GraphDef,
@@ -344,7 +347,7 @@ class JaxBackendImpl(AbstractBackend):
             loss_fn_config: LossFnConfig,
         ) -> tuple[jax.Array, tuple[jax.Array, jax.Array]]:
             target_logprobs = _model_forward(
-                self.graphdef,
+                graphdef,
                 lora_params,
                 non_lora_params,
                 input_ids,
@@ -517,7 +520,7 @@ class JaxBackendImpl(AbstractBackend):
             mean_grads = accumulated_grads.get_mean(adapter_index)
             grad_norm = optax.global_norm(mean_grads)
             mhc_gradient_norm = None
-            if self.config.mhc_expansion_rate > 1:
+            if mhc_expansion_rate > 1:
                 mhc_grads = jax.tree.map_with_path(
                     lambda path, g: g if is_connector_path(path) else jnp.zeros_like(g),
                     mean_grads,
