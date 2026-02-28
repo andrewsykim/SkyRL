@@ -79,7 +79,7 @@ async def lifespan(app: FastAPI):
         logger.info("Using internal engine for inference")
 
     # Build subprocess command with engine config parameters.
-    cmd = ["uv", "run", "--extra", "tinker", "--extra", app.state.engine_config.backend]
+    cmd = ["uv", "run", "--isolated", "--extra", "tinker", "--extra", app.state.engine_config.backend]
     if app.state.engine_config.backend == "jax":
         for extra in _get_parent_uv_accelerator_extras():
             cmd.extend(["--extra", extra])
