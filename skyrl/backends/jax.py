@@ -1072,7 +1072,7 @@ class JaxBackend(JaxBackendImpl):
                 process_id=0,
             )
             logger.info(
-                f"JAX distributed initialized: process_id={jax.process_index()} ({jax.process_count()} total), "
+                f"JAX distributed initialized: worker_id={os.environ.get("TPU_WORKER_ID")} process_id={jax.process_index()} ({jax.process_count()} total), "
                 f"local devices: {jax.local_device_count()}, total devices: {jax.device_count()}"
             )
 
