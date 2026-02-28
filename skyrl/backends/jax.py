@@ -20,6 +20,7 @@ Usage:
     uv run -m skyrl.backends.jax --coordinator-address localhost:7777 --num-processes 2 --process-id 1
 """
 
+import os
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -1072,7 +1073,7 @@ class JaxBackend(JaxBackendImpl):
                 process_id=0,
             )
             logger.info(
-                f"JAX distributed initialized: worker_id={os.environ.get("TPU_WORKER_ID")} process_id={jax.process_index()} ({jax.process_count()} total), "
+                f"JAX distributed initialized: tpu_worker_id={os.environ.get("TPU_WORKER_ID")} process_id={jax.process_index()} ({jax.process_count()} total), "
                 f"local devices: {jax.local_device_count()}, total devices: {jax.device_count()}"
             )
 
