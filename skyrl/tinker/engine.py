@@ -242,10 +242,8 @@ class TinkerEngine:
 
         # Propagate Ray config to backend if set in EngineConfig
         backend_config_dict = config.backend_config.copy()
-        if config.use_ray:
-            backend_config_dict["use_ray"] = True
-        if config.ray_address:
-            backend_config_dict["ray_address"] = config.ray_address
+        if config.ray_actor_options:
+            backend_config_dict["ray_actor_options"] = config.ray_actor_options
 
         backend_config = backend_config_class(**backend_config_dict)
         self.backend = backend_class(config.base_model, backend_config)
