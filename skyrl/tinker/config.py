@@ -51,6 +51,14 @@ class EngineConfig(BaseModel):
         default=300,
         description="Seconds without heartbeat before session is considered stale. Set to -1 to disable cleanup.",
     )
+    use_ray: bool = Field(
+        default=False,
+        description="Whether to use Ray for orchestration (Ray Serve for API and Ray Actors for workers)",
+    )
+    ray_address: str | None = Field(
+        default=None,
+        description="Address of an existing Ray cluster to connect to. If not set, Ray will be initialized locally.",
+    )
 
 
 def convert_env_var(env_name: str, env_value: str, expected_type: type):

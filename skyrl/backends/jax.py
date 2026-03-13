@@ -21,6 +21,10 @@ Usage:
 """
 
 import time
+try:
+    import ray
+except ImportError:
+    ray = None
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable, get_type_hints
@@ -110,6 +114,14 @@ class JaxBackendConfig(BaseModel, extra="forbid"):
     num_processes: int | None = Field(
         default=None,
         description="Total number of processes in the multi-node cluster",
+    )
+    use_ray: bool = Field(
+        default=False,
+        description="Whether to use Ray for worker management", 
+    )
+    ray_address: str | None = Field(
+        default=None,
+        description="Ray address to connect to",
     )
 
 
@@ -1066,6 +1078,23 @@ def _broadcast_command(cmd: RpcPayload | None, process_id: int) -> RpcPayload:
     return RpcPayloadAdapter.validate_json(data_arr.tobytes())
 
 
+
+if ray:
+
+    @ray.remote(num_gpus=1)
+    class JaxWorkerActor:
+        def __init__(self, coordinator_address: str, num_processes: int, process_id: int):
+            self.coordinator_address = coordinator_address
+            self.num_processes = num_processes
+            self.process_id = process_id
+
+        def run(self):
+            # run_worker is defined later in the file, but at runtime it will be available
+            from skyrl.backends.jax import run_worker
+
+            run_worker(self.coordinator_address, self.num_processes, self.process_id)
+
+
 class JaxBackend(JaxBackendImpl):
     """Distributed wrapper that broadcasts commands before calling JaxBackendImpl methods.
 
@@ -1074,6 +1103,30 @@ class JaxBackend(JaxBackendImpl):
 
     def __init__(self, base_model: str, config: JaxBackendConfig):
         self.process_id = 0  # Coordinator is always process 0
+
+        if config.use_ray and config.num_processes and config.num_processes > 1:
+            if not ray.is_initialized():
+                ray.init(address=config.ray_address, ignore_reinit_error=True)
+
+            if config.coordinator_address is None:
+                import ray.util
+
+                coordinator_ip = ray.util.get_node_ip_address()
+                config.coordinator_address = f"{coordinator_ip}:1234"
+
+            logger.info(f"Launching {config.num_processes - 1} Ray worker actors...")
+            self.worker_actors = [
+                JaxWorkerActor.options(name=f"jax_worker_{i}").remote(
+                    coordinator_address=config.coordinator_address,
+                    num_processes=config.num_processes,
+                    process_id=i,
+                )
+                for i in range(1, config.num_processes)
+            ]
+            # Start workers in background
+            for actor in self.worker_actors:
+                actor.run.remote()
+
         if config.coordinator_address is not None:
             jax.distributed.initialize(
                 coordinator_address=config.coordinator_address,

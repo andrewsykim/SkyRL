@@ -239,7 +239,15 @@ class TinkerEngine:
 
         # Initialize the backend (handles model state, computation, and adapter management)
         backend_class, backend_config_class = get_backend_classes(config.backend)
-        backend_config = backend_config_class(**config.backend_config)
+
+        # Propagate Ray config to backend if set in EngineConfig
+        backend_config_dict = config.backend_config.copy()
+        if config.use_ray:
+            backend_config_dict["use_ray"] = True
+        if config.ray_address:
+            backend_config_dict["ray_address"] = config.ray_address
+
+        backend_config = backend_config_class(**backend_config_dict)
         self.backend = backend_class(config.base_model, backend_config)
 
         # Track last cleanup time for periodic stale session cleanup
