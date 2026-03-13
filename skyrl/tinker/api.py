@@ -20,13 +20,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlmodel import SQLModel, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-try:
-    import ray
-    from ray import serve
-except ImportError:
-    ray = None
-    serve = None
-
 from skyrl.tinker import types
 from skyrl.tinker.config import EngineConfig, add_model, config_to_argv
 from skyrl.tinker.db_models import (
@@ -172,15 +165,6 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Tinker API Mock", version="0.0.1", lifespan=lifespan)
-
-
-if serve:
-
-    @serve.deployment
-    @serve.ingress(app)
-    class SkyRLServeDeployment:
-        def __init__(self, engine_config: EngineConfig):
-            app.state.engine_config = engine_config
 
 
 async def get_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
@@ -1275,10 +1259,4 @@ if __name__ == "__main__":
     # Store config in app.state so lifespan can access it
     app.state.engine_config = engine_config
 
-    if engine_config.use_ray:
-        if not serve:
-            raise ImportError("Ray Serve is not installed. Please install it with `pip install ray[serve]`")
-        ray.init(address=engine_config.ray_address, ignore_reinit_error=True)
-        serve.run(SkyRLServeDeployment.bind(engine_config), route_prefix="/")
-    else:
-        uvicorn.run(app, host=args.host, port=args.port, log_config=get_uvicorn_log_config())
+    uvicorn.run(app, host=args.host, port=args.port, log_config=get_uvicorn_log_config())

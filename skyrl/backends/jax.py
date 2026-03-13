@@ -1128,7 +1128,7 @@ class JaxBackend(JaxBackendImpl):
                         process_id=i,
                     )
                 )
-            # Start workers in background
+
             for actor in self.worker_actors:
                 actor.run.remote()
 
