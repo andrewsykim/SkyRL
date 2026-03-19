@@ -231,6 +231,8 @@ class TinkerEngine:
     def __init__(
         self,
         config: EngineConfig,
+        use_ray: bool = False,
+        ray_actor_options: str | None = None,
     ):
         """Initialize the engine with a database connection and base model."""
         self.config = config
@@ -240,7 +242,16 @@ class TinkerEngine:
         # Initialize the backend (handles model state, computation, and adapter management)
         backend_class, backend_config_class = get_backend_classes(config.backend)
         backend_config = backend_config_class(**config.backend_config)
-        self.backend = backend_class(config.base_model, backend_config)
+
+        if config.backend == "jax":
+            self.backend = backend_class(
+                config.base_model,
+                backend_config,
+                use_ray=use_ray,
+                ray_actor_options=ray_actor_options,
+            )
+        else:
+            self.backend = backend_class(config.base_model, backend_config)
 
         # Track last cleanup time for periodic stale session cleanup
         self._last_cleanup_time: float = time.time()
@@ -724,6 +735,9 @@ def main():
     parser = argparse.ArgumentParser(description="SkyRL tinker engine for processing requests")
     add_model(parser, EngineConfig)
 
+    parser.add_argument("--use-ray", action="store_true", help="Use Ray to start JAX workers.")
+    parser.add_argument("--ray-actor-options", type=str, help="JSON string for Ray actor options.")
+
     # Parse command-line arguments
     args = parser.parse_args()
 
@@ -731,7 +745,7 @@ def main():
     config = EngineConfig.model_validate(vars(args))
 
     # Initialize and run the engine
-    TinkerEngine(config).run()
+    TinkerEngine(config, use_ray=args.use_ray, ray_actor_options=args.ray_actor_options).run()
 
 
 if __name__ == "__main__":

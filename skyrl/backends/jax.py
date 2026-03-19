@@ -1072,8 +1072,68 @@ class JaxBackend(JaxBackendImpl):
     Workers use runtime type introspection to re-hydrate arguments automatically.
     """
 
-    def __init__(self, base_model: str, config: JaxBackendConfig):
+    def __init__(
+        self,
+        base_model: str,
+        config: JaxBackendConfig,
+        use_ray: bool = False,
+        ray_actor_options: str | None = None,
+    ):
         self.process_id = 0  # Coordinator is always process 0
+
+        self.use_ray = use_ray
+        self._ray_workers = []
+
+        if self.use_ray:
+            import json
+            import socket
+
+            import ray
+
+            # Automatically set coordinator address if not provided
+            if not config.coordinator_address:
+                # Find a free port
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.bind(("", 0))
+                    port = s.getsockname()[1]
+                ip = ray.util.get_node_ip_address()
+                config.coordinator_address = f"{ip}:{port}"
+
+            if not config.num_processes:
+                config.num_processes = 1
+
+            total_devices = (
+                config.fully_sharded_data_parallel_size
+                * config.expert_parallel_size
+                * config.tensor_parallel_size
+            )
+            devices_per_worker = max(1, total_devices // config.num_processes)
+
+            default_options = {
+                "num_cpus": 1,
+                "num_gpus": devices_per_worker,
+            }
+            if ray_actor_options:
+                default_options.update(json.loads(ray_actor_options))
+
+            @ray.remote(**default_options)
+            class RayWorker:
+                def run(self, coordinator_address: str, num_processes: int, process_id: int):
+                    from skyrl.backends.jax import run_worker
+
+                    run_worker(coordinator_address, num_processes, process_id)
+
+            # Start workers
+            if config.num_processes > 1:
+                logger.info(
+                    f"Starting {config.num_processes - 1} Ray workers with options {default_options}"
+                )
+                self._ray_workers = [
+                    RayWorker.remote() for _ in range(1, config.num_processes)
+                ]
+                for i, worker in enumerate(self._ray_workers, 1):
+                    worker.run.remote(config.coordinator_address, config.num_processes, i)
+
         if config.coordinator_address is not None:
             jax.distributed.initialize(
                 coordinator_address=config.coordinator_address,

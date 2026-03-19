@@ -112,55 +112,83 @@ async def lifespan(app: FastAPI):
         app.state.external_inference_client = None
         logger.info("Using internal engine for inference")
 
-    # Build subprocess command with engine config parameters.
-    parent_cmd = psutil.Process(os.getppid()).cmdline()
-    cmd = _build_uv_run_cmd_engine(parent_cmd, app.state.engine_config)
-
-    background_engine = await asyncio.create_subprocess_exec(*cmd)
-    app.state.background_engine = background_engine
-    logger.info(f"Started background engine with PID {background_engine.pid}: {' '.join(cmd)}")
-
     shutting_down = False
 
-    async def monitor_engine():
-        """Monitor engine process and exit API server if it crashes."""
-        exit_code = await background_engine.wait()
-        if not shutting_down:
-            logger.error(f"Background engine crashed with exit code {exit_code}, exiting API server")
+    if getattr(app.state, "use_ray", False):
+        import ray
+        ray.init(ignore_reinit_error=True)
+        from skyrl.tinker.engine import TinkerEngine
 
-            # Start a background timer that force-exits after timeout.
-            # Using a thread instead of asyncio task because SIGTERM handling
-            # may wait for pending asyncio tasks to complete before exiting.
-            def force_exit():
-                logger.warning("Graceful shutdown timed out, forcing exit")
-                os._exit(1)
+        def run_engine_in_thread():
+            try:
+                engine = TinkerEngine(
+                    app.state.engine_config,
+                    use_ray=True,
+                    ray_actor_options=getattr(app.state, "ray_actor_options", None),
+                )
+                engine.run()
+            except Exception as e:
+                logger.exception("Engine crashed")
+                if not shutting_down:
+                    os.kill(os.getpid(), signal.SIGTERM)
 
-            timer = threading.Timer(SHUTDOWN_TIMEOUT_SECONDS, force_exit)
-            timer.daemon = True
-            timer.start()
+        engine_thread = threading.Thread(target=run_engine_in_thread, daemon=True)
+        engine_thread.start()
+        app.state.engine_thread = engine_thread
+        logger.info("Started engine in background thread (Ray enabled)")
 
-            # Request graceful shutdown. Uvicorn will stop accepting new
-            # connections and wait for active requests to complete.
-            # If shutdown doesn't complete in time, force_exit() will terminate.
-            os.kill(os.getpid(), signal.SIGTERM)
+        yield
 
-    monitor_task = asyncio.create_task(monitor_engine())
+        shutting_down = True
+        logger.info("Stopping engine thread")
+    else:
+        # Build subprocess command with engine config parameters.
+        parent_cmd = psutil.Process(os.getppid()).cmdline()
+        cmd = _build_uv_run_cmd_engine(parent_cmd, app.state.engine_config)
 
-    yield
+        background_engine = await asyncio.create_subprocess_exec(*cmd)
+        app.state.background_engine = background_engine
+        logger.info(f"Started background engine with PID {background_engine.pid}: {' '.join(cmd)}")
 
-    shutting_down = True
-    monitor_task.cancel()
+        async def monitor_engine():
+            """Monitor engine process and exit API server if it crashes."""
+            exit_code = await background_engine.wait()
+            if not shutting_down:
+                logger.error(f"Background engine crashed with exit code {exit_code}, exiting API server")
 
-    logger.info(f"Stopping background engine (PID {app.state.background_engine.pid})")
-    with suppress(ProcessLookupError):
-        background_engine.terminate()
-        try:
-            await asyncio.wait_for(background_engine.wait(), timeout=5)
-        except asyncio.TimeoutError:
-            logger.warning(f"Background engine (PID {background_engine.pid}) did not terminate gracefully, killing")
-            background_engine.kill()
-            await background_engine.wait()
-    logger.info("Background engine stopped")
+                # Start a background timer that force-exits after timeout.
+                # Using a thread instead of asyncio task because SIGTERM handling
+                # may wait for pending asyncio tasks to complete before exiting.
+                def force_exit():
+                    logger.warning("Graceful shutdown timed out, forcing exit")
+                    os._exit(1)
+
+                timer = threading.Timer(SHUTDOWN_TIMEOUT_SECONDS, force_exit)
+                timer.daemon = True
+                timer.start()
+
+                # Request graceful shutdown. Uvicorn will stop accepting new
+                # connections and wait for active requests to complete.
+                # If shutdown doesn't complete in time, force_exit() will terminate.
+                os.kill(os.getpid(), signal.SIGTERM)
+
+        monitor_task = asyncio.create_task(monitor_engine())
+
+        yield
+
+        shutting_down = True
+        monitor_task.cancel()
+
+        logger.info(f"Stopping background engine (PID {app.state.background_engine.pid})")
+        with suppress(ProcessLookupError):
+            background_engine.terminate()
+            try:
+                await asyncio.wait_for(background_engine.wait(), timeout=5)
+            except asyncio.TimeoutError:
+                logger.warning(f"Background engine (PID {background_engine.pid}) did not terminate gracefully, killing")
+                background_engine.kill()
+                await background_engine.wait()
+        logger.info("Background engine stopped")
 
 
 app = FastAPI(title="Tinker API Mock", version="0.0.1", lifespan=lifespan)
@@ -1250,6 +1278,8 @@ if __name__ == "__main__":
     add_model(parser, EngineConfig)
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to bind to")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    parser.add_argument("--use-ray", action="store_true", help="Use Ray to manage JAX workers")
+    parser.add_argument("--ray-actor-options", type=str, help="JSON string for Ray actor options")
     args = parser.parse_args()
 
     # Create EngineConfig from parsed arguments (only EngineConfig fields)
@@ -1257,5 +1287,7 @@ if __name__ == "__main__":
 
     # Store config in app.state so lifespan can access it
     app.state.engine_config = engine_config
+    app.state.use_ray = args.use_ray
+    app.state.ray_actor_options = args.ray_actor_options
 
     uvicorn.run(app, host=args.host, port=args.port, log_config=get_uvicorn_log_config())
