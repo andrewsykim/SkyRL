@@ -23,6 +23,7 @@ dependencies = [
     "peft",
     "hf_transfer",
     "cloudpathlib>=0.23.0",
+    "ray",
 ]
 
 [project.optional-dependencies]
@@ -46,6 +47,7 @@ tinker = [
     "aiosqlite",
     "asyncpg",
     "psycopg2-binary",
+    "ray",
 ]
 
 aws = [
