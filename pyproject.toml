@@ -35,7 +35,7 @@ tpu = [
 ]
 
 ray = [
-    "ray[default]>=2.54.0",
+    "ray[default]>=2.51.1",
 ]
 
 tinker = [
