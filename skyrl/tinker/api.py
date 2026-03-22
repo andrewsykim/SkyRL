@@ -11,6 +11,8 @@ from uuid import uuid4
 
 import fastapi
 import psutil
+import ray
+from ray import serve
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse, StreamingResponse
 from pydantic import (
@@ -118,6 +120,7 @@ async def lifespan(app: FastAPI):
 
     # Build subprocess command with engine config parameters.
     parent_cmd = psutil.Process(os.getppid()).cmdline()
+    # parent_cmd = getattr(app.state, "uv_parent_cmd", None) or psutil.Process(os.getppid()).cmdline()
     cmd = _build_uv_run_cmd_engine(parent_cmd, app.state.engine_config)
 
     background_engine = await asyncio.create_subprocess_exec(*cmd)
@@ -1248,6 +1251,15 @@ async def root():
     }
 
 
+# @serve.deployment(num_replicas=1)
+# @serve.ingress(app)
+# class TinkerDeployment:
+#     def __init__(self, config: EngineConfig, p_cmd: list[str]):
+#         # Ray Serve guarantees app.state is initialized correctly
+#         app.state.engine_config = config
+#         app.state.uv_parent_cmd = p_cmd
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -1266,4 +1278,18 @@ if __name__ == "__main__":
     # Store config in app.state so lifespan can access it
     app.state.engine_config = engine_config
 
-    uvicorn.run(app, host=args.host, port=args.port, log_config=get_uvicorn_log_config())
+    if engine_config.use_ray:
+        # Connect to ray
+        # ray.init(address=engine_config.ray_address, ignore_reinit_error=True)
+        
+        # Capture parent command BEFORE starting anything async or actor
+        # try:
+        #     # We look at driver parent command to replicate startup flags
+        #     parent_cmd = psutil.Process(os.getppid()).cmdline()
+        # except Exception:
+        #     parent_cmd = []
+                
+        # Run deployment
+        serve.run(serve.deployment(serve.ingress(app)()).bind(), blocking=True)
+    else:
+        uvicorn.run(app, host=args.host, port=args.port, log_config=get_uvicorn_log_config())
