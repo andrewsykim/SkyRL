@@ -902,7 +902,9 @@ class JaxBackendImpl(AbstractBackend):
 
     def save_checkpoint(self, output_path: AnyPath, model_id: str) -> None:
         """Save training checkpoint using Flax checkpoints."""
+        logger.info(f"save_checkpoint on {model_id} to {output_path}")
         checkpoint_data = self._extract_checkpoint_data(model_id)
+        logger.info(f"Checkpoint data for {model_id}: {checkpoint_data}")
         checkpoints.save_checkpoint_multiprocess(
             target=checkpoint_data,
             ckpt_dir=output_path,

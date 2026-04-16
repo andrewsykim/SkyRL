@@ -551,6 +551,7 @@ class TinkerEngine:
         checkpoint_id = Path(request_data.path).name
         output_path = self.config.checkpoints_base / model_id / f"{checkpoint_id}.tar.gz"
 
+        logger.info(f"Saving checkpoint for model {model_id} to {output_path}")
         with self._checkpoint_status_context(model_id, checkpoint_id, types.CheckpointType.TRAINING):
             self.backend.save_checkpoint(output_path, model_id)
             logger.info(f"Saved trimmed training checkpoint for model {model_id} to {output_path}")
