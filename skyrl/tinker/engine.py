@@ -547,7 +547,8 @@ class TinkerEngine:
         if not self.backend.has_model(model_id):
             return _model_not_found_error(model_id)
 
-        checkpoint_id = request_data.path
+        # Make sure the user cannot store checkpoints in places like ../../<important file>
+        checkpoint_id = Path(request_data.path).name
         output_path = self.config.checkpoints_base / model_id / f"{checkpoint_id}.tar.gz"
 
         with self._checkpoint_status_context(model_id, checkpoint_id, types.CheckpointType.TRAINING):
